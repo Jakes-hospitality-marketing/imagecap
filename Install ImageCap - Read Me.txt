@@ -1,0 +1,65 @@
+INSTALLING IMAGECAP
+===================
+
+This takes about a minute. You only ever do it once.
+
+Partway through, your Mac will say it can't open the app. That's expected —
+it's because ImageCap is an in-house tool and not sold through the App
+Store, not because anything is wrong with it. Step 3 is how you get past
+that. After this first time, ImageCap opens normally forever, and it
+updates itself.
+
+
+STEP 1 — Copy the app over
+--------------------------
+Drag ImageCap (the app icon in this folder) into your Applications folder.
+
+
+STEP 2 — Try to open it
+-----------------------
+Go to your Applications folder and double-click ImageCap.
+
+Your Mac will show a message saying it can't verify the app, with a
+"Done" button. Click Done.
+
+Nothing has gone wrong. Keep going.
+
+
+STEP 3 — Allow it
+-----------------
+Do this part within an hour of Step 2, or you'll need to repeat Step 2
+first.
+
+  1. Open System Settings (the grey gear icon).
+  2. Click "Privacy & Security" in the left-hand sidebar.
+  3. Scroll all the way down to the "Security" section.
+  4. You'll see a line saying ImageCap "was blocked to protect your Mac."
+     Click the "Open Anyway" button next to it.
+  5. Enter your Mac password when asked.
+  6. If one more window appears, click "Open Anyway" again.
+
+ImageCap will open.
+
+
+THAT'S IT
+---------
+You never have to do any of this again. ImageCap now opens with a normal
+double-click, and when there's a new version it updates itself.
+
+
+USING IT
+--------
+  - Drag images, or a whole folder of images, onto the window.
+  - Pick a size limit at the top. 1.9 MB is the usual one.
+  - Click "Choose folder" to say where the results should go.
+  - Click Compress.
+
+You get a new folder containing the compressed copies. Your original
+images are never changed or moved.
+
+
+STUCK?
+------
+Message Jake. Don't spend more than a couple of minutes on it — if
+something looks different from the steps above, it's easier for him to
+sort out than for you to guess at.
