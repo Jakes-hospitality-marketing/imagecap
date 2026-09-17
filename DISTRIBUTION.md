@@ -63,7 +63,13 @@ shell script on enrolled Macs — `install.sh` does the job unchanged.
 
 ### DIY: shared folder plus a one-time unlock
 
-Put `ImageCap.app` and `Install ImageCap - Read Me.txt` in a shared Google Drive folder.
+Put **`ImageCap.zip`** and `READ ME FIRST.txt` in a shared Google Drive folder — the
+zip, never the raw `.app`.
+
+A Mac application is a folder, not a file. Sync it to Drive unzipped and Drive stores it
+as a browsable folder: teammates see `Contents`, `MacOS`, `Info.plist` and open the
+plist, which is XML. Confirmed happening 2026-09-17. A zip is a single file, downloads
+as one, and expands back into a working bundle with permissions intact.
 Teammates drag the app to Applications, hit the Gatekeeper block once, and clear it
 through System Settings → Privacy & Security → "Open Anyway". The read-me walks them
 through it in plain language.

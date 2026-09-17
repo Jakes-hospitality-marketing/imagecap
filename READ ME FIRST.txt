@@ -9,15 +9,18 @@ INSTALLING — about 2 minutes, one time only
 Read this first: your Mac WILL refuse to open the app the first time,
 and will say it cannot verify the developer. Nothing is wrong. That
 message appears for any app not bought from the App Store, and this
-one we built ourselves. Step 3 clears it for good.
+one we built ourselves. Step 4 clears it for good.
 
 
-1. Put ImageCap in your Applications folder.
+1. Double-click  ImageCap.zip  to unzip it.
 
-   Drag the ImageCap icon into Applications.
+   This turns it into the ImageCap app icon.
 
 
-2. Open your Applications folder and double-click ImageCap.
+2. Drag that ImageCap icon into your Applications folder.
+
+
+3. Open your Applications folder and double-click ImageCap.
 
    A warning appears. Depending on your Mac it says either
 
@@ -33,7 +36,7 @@ one we built ourselves. Step 3 clears it for good.
    If you see a "Move to Trash" button, do not click it.
 
 
-3. Now allow it.
+4. Now allow it.
 
    Open System Settings.
    Click  Privacy & Security  in the left sidebar.
@@ -52,9 +55,9 @@ one we built ourselves. Step 3 clears it for good.
 That's it. From now on it opens with a normal double-click, and it
 updates itself when there's a new version.
 
-Timing note: do step 3 within an hour of step 2. If you leave it
+Timing note: do step 4 within an hour of step 3. If you leave it
 longer the button disappears — just double-click ImageCap again
-and redo step 3.
+and redo step 4.
 
 
 ==========
