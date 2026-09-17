@@ -13,11 +13,24 @@ import AppKit
 /// needs System Settings → Privacy & Security, which is why install.sh exists.
 enum Updater {
 
-    /// Set this to your GitHub repo once it exists, as "owner/name".
-    /// Updates are disabled while it is empty.
+    /// GitHub's internal, permanent identifier for the repository.
+    ///
+    /// Deliberately an ID rather than "owner/name". A named URL stops being trustworthy the
+    /// moment the account is renamed: GitHub frees the old username for anyone to register,
+    /// and whoever claims it inherits that URL. Since this updater downloads a zip and
+    /// replaces the running app with its contents, that would hand control of every
+    /// installation to a stranger — the "repo-jacking" attack. An ID cannot be renamed,
+    /// transferred by squatting, or reassigned, so the update source stays fixed however
+    /// often the account or repo is renamed.
+    ///
+    /// Find it with: curl -s https://api.github.com/repos/OWNER/NAME | grep '"id"'
+    static let repoID = 1_373_629_671
+
+    /// Human-readable equivalent of `repoID`. Not used for anything — renaming the account
+    /// does not require changing it, though keeping it accurate is kind to the next reader.
     static let repo = "Jakes-hospitality-marketing/imagecap"
 
-    static var isConfigured: Bool { !repo.isEmpty }
+    static var isConfigured: Bool { repoID != 0 }
 
     static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
@@ -33,7 +46,7 @@ enum Updater {
 
     static func checkForUpdate() async -> Release? {
         guard isConfigured,
-              let api = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")
+              let api = URL(string: "https://api.github.com/repositories/\(repoID)/releases/latest")
         else { return nil }
 
         var req = URLRequest(url: api)
@@ -74,13 +87,14 @@ enum Updater {
     // MARK: - Applying
 
     enum UpdateError: LocalizedError {
-        case download, unpack, notFound, swap
+        case download, unpack, notFound, mismatch, swap
 
         var errorDescription: String? {
             switch self {
             case .download: return "Could not download the update."
             case .unpack:   return "The downloaded update could not be opened."
             case .notFound: return "The update did not contain an app."
+            case .mismatch: return "That update was not a copy of ImageCap — not installed."
             case .swap:     return "Could not replace the installed app."
             }
         }
@@ -112,6 +126,14 @@ enum Updater {
         guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
             throw UpdateError.notFound
         }
+
+        // Refuse to install something that is not a newer copy of this app. Cheap, but it
+        // means a wrong or tampered-with asset cannot quietly replace the installed bundle.
+        let plist = newApp.appendingPathComponent("Contents/Info.plist")
+        guard let info = NSDictionary(contentsOf: plist) as? [String: Any],
+              let id = info["CFBundleIdentifier"] as? String,
+              id == Bundle.main.bundleIdentifier
+        else { throw UpdateError.mismatch }
 
         let installed = Bundle.main.bundleURL
         let script = work.appendingPathComponent("swap.sh")

@@ -19,7 +19,10 @@ APP="ImageCap"
 DEST="/Applications/$APP.app"
 
 echo "Looking up the latest $APP release…"
-API="https://api.github.com/repos/$REPO/releases/latest"
+# Query by GitHub's permanent numeric repo ID, not by owner/name: a renamed account
+# frees its old username for anyone to claim, and this script installs what it downloads.
+REPO_ID="1373629671"
+API="https://api.github.com/repositories/$REPO_ID/releases/latest"
 ZIP_URL=$(curl -fsSL "$API" | grep -o '"browser_download_url": *"[^"]*\.zip"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$ZIP_URL" ]; then
