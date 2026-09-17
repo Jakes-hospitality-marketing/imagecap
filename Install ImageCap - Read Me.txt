@@ -1,65 +1,66 @@
-INSTALLING IMAGECAP
-===================
-
-This takes about a minute. You only ever do it once.
-
-Partway through, your Mac will say it can't open the app. That's expected —
-it's because ImageCap is an in-house tool and not sold through the App
-Store, not because anything is wrong with it. Step 3 is how you get past
-that. After this first time, ImageCap opens normally forever, and it
-updates itself.
+IMAGECAP
+Makes image files smaller so they fit upload limits.
 
 
-STEP 1 — Copy the app over
---------------------------
-Drag ImageCap (the app icon in this folder) into your Applications folder.
+===========================================
+INSTALLING — about 2 minutes, one time only
+===========================================
+
+Heads up before you start: partway through, your Mac will say it
+can't open the app. That is normal and expected. It happens because
+this is a tool we made ourselves rather than something bought from
+the App Store. Step 3 clears it permanently.
 
 
-STEP 2 — Try to open it
------------------------
-Go to your Applications folder and double-click ImageCap.
-
-Your Mac will show a message saying it can't verify the app, with a
-"Done" button. Click Done.
-
-Nothing has gone wrong. Keep going.
+1. Drag ImageCap into your Applications folder.
 
 
-STEP 3 — Allow it
------------------
-Do this part within an hour of Step 2, or you'll need to repeat Step 2
-first.
+2. Open your Applications folder and double-click ImageCap.
 
-  1. Open System Settings (the grey gear icon).
-  2. Click "Privacy & Security" in the left-hand sidebar.
-  3. Scroll all the way down to the "Security" section.
-  4. You'll see a line saying ImageCap "was blocked to protect your Mac."
-     Click the "Open Anyway" button next to it.
-  5. Enter your Mac password when asked.
-  6. If one more window appears, click "Open Anyway" again.
+   A box appears saying Apple could not verify the app.
 
-ImageCap will open.
+   Click  Done
+   Do NOT click "Move to Trash".
 
 
-THAT'S IT
----------
-You never have to do any of this again. ImageCap now opens with a normal
-double-click, and when there's a new version it updates itself.
+3. Open System Settings, then click Privacy & Security.
+
+   Scroll down to the very bottom.
+
+   You'll see a line about ImageCap being blocked.
+
+   Click  Open Anyway
+   Enter your Mac password.
+   If another box appears, click  Open Anyway  again.
 
 
+ImageCap opens. You're done — it will open normally from now on,
+and it updates itself when there's a new version.
+
+One catch: do step 3 within an hour of step 2. If you wait longer,
+just double-click ImageCap again and redo step 3.
+
+
+==========
 USING IT
---------
-  - Drag images, or a whole folder of images, onto the window.
-  - Pick a size limit at the top. 1.9 MB is the usual one.
-  - Click "Choose folder" to say where the results should go.
-  - Click Compress.
+==========
 
-You get a new folder containing the compressed copies. Your original
-images are never changed or moved.
+1. Drag your images onto the window. A whole folder works too.
+
+2. Pick a size limit at the top. 1.9 MB is the usual choice.
+
+3. Click "Choose folder" to pick where the results go.
+
+4. Click Compress.
+
+You get a new folder with the smaller copies inside. Your original
+images are never changed, moved, or deleted.
 
 
-STUCK?
-------
-Message Jake. Don't spend more than a couple of minutes on it — if
-something looks different from the steps above, it's easier for him to
-sort out than for you to guess at.
+==========
+PROBLEMS?
+==========
+
+Message Jake. Don't spend more than a couple of minutes stuck —
+if what you see doesn't match these steps, it's quicker for him
+to sort out than for you to guess.
