@@ -83,9 +83,13 @@ Two things that will trip people up:
 - There is a **one-hour window**. "Open Anyway" only appears in System Settings for an
   hour after the blocked message. Miss it and they have to double-click the app again to
   re-trigger it.
-- It must be the **desktop sync folder in Finder**. Downloading from drive.google.com in
-  a browser works the same way but is a separate download, so they would hit the block
-  again on a file they then have to find.
+- The Gatekeeper dialog has **two variants**. Older-style: "cannot be opened because it
+  is from an unidentified developer", single OK button. Newer: "Apple could not verify…",
+  with Done and Move to Trash. Confirmed in the wild 2026-09-17 that a Chrome download
+  produces the first. The read-me covers both, because telling someone to click a button
+  that is not there is enough to stop them.
+- Finder sync folder versus browser download makes **no difference** — both quarantine,
+  so the unlock is needed either way. Do not bother instructing people on which to use.
 
 This only stays a one-time cost if `Updater.repo` is configured in the build you hand
 out — see the ordering note below.

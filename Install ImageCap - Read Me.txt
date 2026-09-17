@@ -6,39 +6,55 @@ Makes image files smaller so they fit upload limits.
 INSTALLING — about 2 minutes, one time only
 ===========================================
 
-Heads up before you start: partway through, your Mac will say it
-can't open the app. That is normal and expected. It happens because
-this is a tool we made ourselves rather than something bought from
-the App Store. Step 3 clears it permanently.
+Read this first: your Mac WILL refuse to open the app the first time,
+and will say it cannot verify the developer. Nothing is wrong. That
+message appears for any app not bought from the App Store, and this
+one we built ourselves. Step 3 clears it for good.
 
 
-1. Drag ImageCap into your Applications folder.
+1. Put ImageCap in your Applications folder.
+
+   Drag the ImageCap icon into Applications.
 
 
 2. Open your Applications folder and double-click ImageCap.
 
-   A box appears saying Apple could not verify the app.
+   A warning appears. Depending on your Mac it says either
 
-   Click  Done
-   Do NOT click "Move to Trash".
+       "ImageCap cannot be opened because it is from an
+        unidentified developer"
 
+   or
 
-3. Open System Settings, then click Privacy & Security.
+       "Apple could not verify ImageCap is free of malware"
 
-   Scroll down to the very bottom.
+   Click  OK  (or  Done  — whichever button it shows).
 
-   You'll see a line about ImageCap being blocked.
-
-   Click  Open Anyway
-   Enter your Mac password.
-   If another box appears, click  Open Anyway  again.
+   If you see a "Move to Trash" button, do not click it.
 
 
-ImageCap opens. You're done — it will open normally from now on,
-and it updates itself when there's a new version.
+3. Now allow it.
 
-One catch: do step 3 within an hour of step 2. If you wait longer,
-just double-click ImageCap again and redo step 3.
+   Open System Settings.
+   Click  Privacy & Security  in the left sidebar.
+   Scroll all the way down to the bottom.
+
+   You'll see a line saying ImageCap was blocked,
+   with a button next to it:
+
+       Click  Open Anyway
+       Enter your Mac password
+       If one more box appears, click  Open Anyway  again
+
+   ImageCap opens.
+
+
+That's it. From now on it opens with a normal double-click, and it
+updates itself when there's a new version.
+
+Timing note: do step 3 within an hour of step 2. If you leave it
+longer the button disappears — just double-click ImageCap again
+and redo step 3.
 
 
 ==========
@@ -61,6 +77,5 @@ images are never changed, moved, or deleted.
 PROBLEMS?
 ==========
 
-Message Jake. Don't spend more than a couple of minutes stuck —
-if what you see doesn't match these steps, it's quicker for him
-to sort out than for you to guess.
+Message Jake, and say which step you got to. Don't spend more than
+a couple of minutes stuck.
