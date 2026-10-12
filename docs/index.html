@@ -51,14 +51,8 @@
   }
   .wrap { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
 
-  header { margin-bottom: 22px; }
-  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
-  .sub { color: var(--dim); font-size: 14px; margin: 0; }
-  .privacy {
-    display: inline-block; margin-top: 10px; font-size: 12.5px; color: var(--dim);
-    background: var(--panel); border: 1px solid var(--line);
-    padding: 5px 10px; border-radius: 999px;
-  }
+  header { margin-bottom: 18px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
 
   .panel {
     background: var(--panel); border: 1px solid var(--line);
@@ -117,6 +111,19 @@
   .t-failed { color: var(--bad); }
   .saved { color: var(--good); }
 
+  .notice {
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+    background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px;
+  }
+  .notice h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .notice p { margin: 0 0 12px; font-size: 13px; color: var(--dim); }
+  .notice .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .notice code {
+    font-size: 12px; background: var(--bg); border: 1px solid var(--line);
+    padding: 3px 7px; border-radius: 5px; user-select: all; word-break: break-all;
+  }
+
   .bar { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; }
   .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .15s; }
 
@@ -148,8 +155,6 @@
 
   <header>
     <h1>ImageCap</h1>
-    <p class="sub">Shrink a batch of images so every one lands under a size limit.</p>
-    <span class="privacy">Your images never leave this device — everything runs in your browser.</span>
   </header>
 
   <div class="panel">
@@ -170,9 +175,21 @@
   <div id="drop" tabindex="0" role="button" aria-label="Add images">
     <h2>Drop images or a folder here</h2>
     <p>or click to choose files</p>
-    <div class="formats">JPEG &middot; PNG &middot; WebP &middot; GIF &middot; AVIF &middot; HEIC (Safari only)</div>
+    <div class="formats">JPEG &middot; PNG &middot; WebP &middot; GIF &middot; AVIF &middot; HEIC</div>
   </div>
   <input type="file" id="picker" multiple accept="image/*,.heic,.heif" class="hide">
+
+  <div class="notice hide" id="heicNotice">
+    <h3 id="heicTitle"></h3>
+    <p id="heicBody"></p>
+    <div class="acts">
+      <button class="btn" id="heicConvert">Convert them here</button>
+      <button class="btn ghost" id="heicSafari">Open in Safari</button>
+      <span id="heicCopy" class="hide" style="font-size:12.5px;color:var(--dim)">
+        Didn't open? Paste this into Safari: <code id="heicUrl"></code>
+      </span>
+    </div>
+  </div>
 
   <div class="panel hide" id="queuePanel">
     <div class="summary">
@@ -389,23 +406,84 @@ async function searchPosterize(canvas, maxBytes) {
 }
 
 /* ---------------------------------------------------------------------------
+   HEIC
+
+   Safari decodes HEIC natively; Chrome and Firefox cannot, and iPhones shoot
+   HEIC by default. Rather than failing, we detect it quietly and offer two
+   ways out: move to Safari, or pull in a WebAssembly decoder.
+
+   The decoder is 1.3 MB, so it loads only once a HEIC file that this browser
+   genuinely cannot read actually turns up. Everyone else never fetches it.
+--------------------------------------------------------------------------- */
+const isHeic = f => /\.(heic|heif)$/i.test(f.name);
+
+let heicNative = null;    // null = untested, true = browser handles it
+let heicDecoder = null;   // the lazily-loaded decoder, once fetched
+
+async function testHeicNative(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    bmp.close?.();
+    return true;
+  } catch { return false; }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("load failed"));
+    document.head.appendChild(s);
+  });
+}
+
+async function loadHeicDecoder() {
+  if (heicDecoder) return heicDecoder;
+  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js");
+  if (typeof heic2any !== "function") throw new Error("decoder unavailable");
+  heicDecoder = heic2any;
+  return heicDecoder;
+}
+
+/* Decode HEIC to a JPEG blob the rest of the pipeline can handle. Quality is
+   high here deliberately — this is an intermediate step, and the real size
+   decision happens later in the quality search. */
+async function heicToJpeg(file) {
+  const out = await heicDecoder({ blob: file, toType: "image/jpeg", quality: 0.95 });
+  const blob = Array.isArray(out) ? out[0] : out;
+  return new File([blob], file.name, { type: "image/jpeg" });
+}
+
+/* ---------------------------------------------------------------------------
    Per-file pipeline
 --------------------------------------------------------------------------- */
 async function process(file) {
   const target = settings.maxBytes;
   const out = outputType(file);
   const base = file.name.replace(/\.[^.]+$/, "");
+  const originalSize = file.size;
+
+  // A HEIC this browser cannot read natively goes through the decoder first,
+  // if the user chose to load it.
+  let viaDecoder = false;
+  if (isHeic(file) && heicNative === false && heicDecoder) {
+    try { file = await heicToJpeg(file); viaDecoder = true; }
+    catch {
+      return { name: file.name, before: originalSize, after: 0, treatment: "failed",
+               note: "Could not convert this HEIC photo" };
+    }
+  }
 
   let bitmap;
   try {
     // from-image applies EXIF rotation, so phone photos do not come out sideways.
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch (e) {
-    const heic = /\.(heic|heif)$/i.test(file.name);
     return {
-      name: file.name, before: file.size, after: 0, treatment: "failed",
-      note: heic ? "This browser can't read HEIC — open in Safari, or export as JPEG first"
-                 : "Could not read this file",
+      name: file.name, before: originalSize, after: 0, treatment: "failed",
+      note: isHeic(file) ? "This browser can't read HEIC — use Safari, or convert above"
+                         : "Could not read this file",
     };
   }
 
@@ -424,10 +502,10 @@ async function process(file) {
 
   // Already small enough, nothing to change: pass the original through untouched
   // rather than re-encoding it, which would only lose quality for no gain.
-  if (!out.converted && !didResize && file.size <= target) {
+  if (!out.converted && !didResize && originalSize <= target) {
     bitmap.close?.();
     return {
-      name: `${base}.${out.ext}`, before: file.size, after: file.size,
+      name: `${base}.${out.ext}`, before: originalSize, after: originalSize,
       treatment: "copied", blob: file, width: ow, height: oh, ow, oh,
     };
   }
@@ -459,16 +537,17 @@ async function process(file) {
   }
 
   if (!blob) {
-    return { name: file.name, before: file.size, after: 0, treatment: "failed",
+    return { name: file.name, before: originalSize, after: 0, treatment: "failed",
              note: `Could not reach ${fmt(target)} for this image` };
   }
 
   let note = null;
-  if (out.converted) note = `Saved as ${out.ext.toUpperCase()} — browsers can't write the original format`;
+  if (viaDecoder) note = `HEIC converted to JPEG in your browser`;
+  else if (out.converted) note = `Saved as ${out.ext.toUpperCase()} — browsers can't write the original format`;
   else if (levels) note = `Colours reduced to fit`;
 
   return {
-    name: `${base}.${out.ext}`, before: file.size, after: blob.size,
+    name: `${base}.${out.ext}`, before: originalSize, after: blob.size,
     treatment: out.converted ? "converted" : treatment,
     blob, width: w, height: h, ow, oh, quality, note,
   };
@@ -556,7 +635,57 @@ function add(files) {
   const seen = new Set(queue.map(f => f.name + f.size));
   for (const f of files) if (!seen.has(f.name + f.size)) queue.push(f);
   renderQueue();
+  checkHeic();
 }
+
+/* Quietly work out whether the HEIC files in the queue are a problem for this
+   browser, and only say something if they are. Safari users never see this. */
+async function checkHeic() {
+  const heics = queue.filter(isHeic);
+  const notice = $("#heicNotice");
+
+  if (!heics.length) { notice.classList.add("hide"); return; }
+
+  if (heicNative === null) heicNative = await testHeicNative(heics[0]);
+
+  // Handled natively, or the user already loaded the decoder: nothing to say.
+  if (heicNative || heicDecoder) { notice.classList.add("hide"); return; }
+
+  const n = heics.length;
+  $("#heicTitle").textContent =
+    `${n} HEIC photo${n === 1 ? "" : "s"} — this browser can't read ${n === 1 ? "it" : "them"}`;
+  $("#heicBody").textContent =
+    "HEIC is Apple's iPhone photo format, and only Safari opens it directly. " +
+    "You can convert them here instead, which downloads a one-off 1.3 MB converter " +
+    "and saves them as JPEG. Everything still stays on your device.";
+  notice.classList.remove("hide");
+}
+
+$("#heicConvert").onclick = async () => {
+  const btn = $("#heicConvert");
+  btn.disabled = true;
+  btn.textContent = "Loading converter…";
+  try {
+    await loadHeicDecoder();
+    $("#heicNotice").classList.add("hide");
+    btn.disabled = false;
+    btn.textContent = "Convert them here";
+  } catch {
+    btn.disabled = false;
+    btn.textContent = "Convert them here";
+    $("#heicBody").textContent =
+      "The converter couldn't be downloaded — you may be offline. Opening this page " +
+      "in Safari works without it.";
+  }
+};
+
+$("#heicSafari").onclick = () => {
+  // macOS and iOS understand this scheme and hand the URL to Safari. Nothing
+  // happens if the browser blocks it, so the copyable URL is shown as a backup.
+  $("#heicUrl").textContent = location.href;
+  $("#heicCopy").classList.remove("hide");
+  try { location.href = "x-safari-" + location.href; } catch {}
+};
 
 function renderQueue() {
   const n = queue.length;
@@ -565,10 +694,11 @@ function renderQueue() {
   $("#goBtn").disabled = n === 0;
 }
 
-$("#clearBtn").onclick = () => { queue = []; renderQueue(); };
+$("#clearBtn").onclick = () => { queue = []; renderQueue(); checkHeic(); };
 $("#againBtn").onclick = () => {
   queue = []; results = [];
   renderQueue();
+  checkHeic();
   $("#resultsPanel").classList.add("hide");
   $("#drop").classList.remove("hide");
 };
