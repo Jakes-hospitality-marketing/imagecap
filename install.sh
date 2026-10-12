@@ -4,7 +4,11 @@
 # Run with:
 #   curl -fsSL https://raw.githubusercontent.com/Jakes-hospitality-marketing/imagecap/main/install.sh | bash
 #
-# Downloads the latest release and installs it to /Applications.
+# Downloads the latest release of the native Mac app and installs it to /Applications.
+#
+# Most people do not need this: the web version at
+#   https://jakes-hospitality-marketing.github.io/imagecap/
+# needs no install at all. This is for the native app specifically.
 #
 # Why this exists rather than "download the .dmg and double-click": the app is ad-hoc
 # signed, not notarized, so anything downloaded by a *browser* gets tagged with

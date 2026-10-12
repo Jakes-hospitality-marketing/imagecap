@@ -2,83 +2,52 @@ IMAGECAP
 Makes image files smaller so they fit upload limits.
 
 
-===========================================
-INSTALLING — about 2 minutes, one time only
-===========================================
+There's nothing to install any more. Just open this link:
 
-Read this first: your Mac WILL refuse to open the app the first time,
-and will say it cannot verify the developer. Nothing is wrong. That
-message appears for any app not bought from the App Store, and this
-one we built ourselves. Step 4 clears it for good.
+    https://jakes-hospitality-marketing.github.io/imagecap/
+
+Bookmark it. That's the whole thing.
 
 
-1. Double-click  ImageCap.zip  to unzip it.
-
-   This turns it into the ImageCap app icon.
-
-
-2. Drag that ImageCap icon into your Applications folder.
-
-
-3. Open your Applications folder and double-click ImageCap.
-
-   A warning appears. Depending on your Mac it says either
-
-       "ImageCap cannot be opened because it is from an
-        unidentified developer"
-
-   or
-
-       "Apple could not verify ImageCap is free of malware"
-
-   Click  OK  (or  Done  — whichever button it shows).
-
-   If you see a "Move to Trash" button, do not click it.
-
-
-4. Now allow it.
-
-   Open System Settings.
-   Click  Privacy & Security  in the left sidebar.
-   Scroll all the way down to the bottom.
-
-   You'll see a line saying ImageCap was blocked,
-   with a button next to it:
-
-       Click  Open Anyway
-       Enter your Mac password
-       If one more box appears, click  Open Anyway  again
-
-   ImageCap opens.
-
-
-That's it. From now on it opens with a normal double-click, and it
-updates itself when there's a new version.
-
-Timing note: do step 4 within an hour of step 3. If you leave it
-longer the button disappears — just double-click ImageCap again
-and redo step 4.
-
-
-==========
 USING IT
-==========
+--------
 
-1. Drag your images onto the window. A whole folder works too.
+1. Drag your images onto the page. A whole folder works too.
 
 2. Pick a size limit at the top. 1.9 MB is the usual choice.
 
-3. Click "Choose folder" to pick where the results go.
+3. Click Compress.
 
-4. Click Compress.
+4. Click "Download all" to get them back as a zip.
 
-You get a new folder with the smaller copies inside. Your original
-images are never changed, moved, or deleted.
+Your original images are never changed, moved, or deleted. Nothing is
+uploaded anywhere either — the compressing happens on your own computer,
+inside the browser.
 
 
-==========
+IPHONE PHOTOS (HEIC)
+--------------------
+
+If you drop in photos straight from an iPhone, you may see a message
+saying the browser can't read them. That's normal: HEIC is Apple's photo
+format and only Safari opens it directly.
+
+You'll get two buttons. Either works:
+
+  - "Open in Safari" — fastest option if Safari is handy.
+  - "Convert them here" — stays in the browser you're using. Slower,
+    but you don't have to switch.
+
+
+THE OLD MAC APP
+---------------
+
+If you installed the ImageCap app earlier, you can keep using it or drag
+it to the Trash — the link above does the same job and is always up to
+date. Nothing is lost either way.
+
+
 PROBLEMS?
-==========
+---------
 
-Message Jake, and say which step you got to. Don't spend more than
-a couple of minutes stuck.
+Message Jake, and say what you were doing when it happened.

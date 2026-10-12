@@ -1,164 +1,107 @@
-# Storing and distributing ImageCap
+# Distributing ImageCap
 
-Everything here is free.
+## The web app
 
-## Where the code and builds live
+Nothing to do. `docs/` is served by GitHub Pages, so pushing to `main` deploys it:
 
-**A GitHub repository, with builds attached to Releases.** Free, unlimited private
-repos, 2 GB per release asset, full version history, and a stable download URL the app
-can check against. Nothing else free gives you versioning, a changelog and a machine
--readable "what's the latest version" endpoint in one place.
+**https://jakes-hospitality-marketing.github.io/imagecap/**
 
-Make the repo **public** if you want the install command to work without anyone signing
-in. A private repo works too, but every download then needs a GitHub token, which is
-more friction than this app is worth. There is nothing sensitive in the source.
+Send people the link. There is no install, no version to chase, no per-machine setup —
+everyone has the current build the moment you push one. Free, and the images never leave
+the user's device, so there is no hosting cost or privacy question either.
 
-Google Drive or Dropbox also work for handing out the file, but they give you no version
-history, no release notes and no way for the app to know an update exists — and files
-downloaded from them are quarantined (see below). Use GitHub.
+If Pages ever needs re-enabling: repo **Settings → Pages → Deploy from a branch →
+`main` / `/docs`**.
 
-## The Gatekeeper problem, and why the install method matters
+Deploys take a minute or two. Verify with the files, not just the page, since a stale
+cache can serve an old `index.html` against new assets:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://jakes-hospitality-marketing.github.io/imagecap/worker.js
+```
+
+---
+
+The rest of this file is about the **native Mac app**, which the web version replaced.
+It is kept because the app still exists and the Gatekeeper mechanics were expensive to
+work out — but none of it applies to the web app, and none of it is work your team has
+to do any more.
+
+## Why distributing the Mac app is hard
 
 The app is ad-hoc signed rather than notarized, because notarizing requires an Apple
 Developer account at $99/yr.
 
 macOS blocks unsigned apps, but **only when the file carries the `com.apple.quarantine`
-extended attribute.** That flag is not applied by macOS to every download — it is
-applied by the *downloading application*. Browsers, Mail, Messages, Slack and Google
-Drive all set it. `curl` and URLSession do not.
+extended attribute** — and that flag is applied by the *downloading application*, not by
+macOS universally. Browsers, Mail, Slack, AirDrop and Google Drive all set it. `curl`,
+URLSession, MDM agents and plain file copies do not.
 
-Verified on macOS 26.6: `spctl -a -t exec` **rejects** this app bundle, and it still
-launches normally after a `curl` + `ditto` round trip, because no quarantine flag was
-ever attached.
+Verified on macOS 26.6: `spctl -a -t exec` **rejects** the bundle, and it still launches
+normally after a `curl` + `ditto` round trip, because no quarantine flag was ever
+attached.
 
-Nothing in this project strips the quarantine flag from anything — the approach relies
-only on never acquiring it. That is a deliberate line: stripping it would disable a real
-protection for any file, including ones that should be blocked, whereas choosing a
-transport that never sets it changes nothing about how macOS treats other software.
+Nothing in this project strips the flag from anything — the approach relies only on never
+acquiring it. Stripping it would disable a real protection for every file, including ones
+that should be blocked; choosing a transport that never sets it changes nothing about how
+macOS treats other software.
 
-This matters more than it sounds, because on macOS 15+ Apple removed the old
-right-click → Open bypass. A quarantined unsigned app now requires a trip through
-System Settings → Privacy & Security → "Open Anyway" — **for every person, on every
-update.** Installing by script skips that permanently.
+This matters because macOS 15 removed the old right-click → Open bypass. A quarantined
+unsigned app now needs System Settings → Privacy & Security → "Open Anyway", **per
+person, per download**.
 
-The upshot is that *how* the app reaches a Mac matters more than anything about the app
-itself. The options below are ordered by how little your team has to do.
+## What we learned the hard way
 
-## Getting it onto your team's Macs
+Three rollout attempts failed, and none of them were the app's fault:
 
-### Best: deploy it through MDM (nobody touches anything)
+- **Never put a raw `.app` in Google Drive.** A Mac application is a directory, so Drive
+  syncs it as a browsable folder. A teammate opened `Info.plist` from inside the bundle
+  and got a screen of XML. Ship a **zip**: one file, which expands back into a working
+  bundle with permissions and signature intact.
+- **The Gatekeeper dialog has two variants.** A Chrome download produces "cannot be opened
+  because it is from an unidentified developer" with a single **OK** button — not the
+  "Apple could not verify…" / Done / Move to Trash dialog in Apple's documentation.
+  Instructions that name the wrong button stop people cold.
+- **Don't name the instructions file "Install …"** — it reads as an installer and gets
+  double-clicked first, which opens a text editor and looks like a failure.
+- Finder sync folder versus browser download makes **no difference**; Drive quarantines
+  either way.
+- There is a **one-hour window** on the "Open Anyway" button after the blocked message.
 
-If the Macs are centrally managed, this is the easiest route by a distance. Software
-installed by an MDM system is installed by its management agent as root rather than
-downloaded by a user, so the quarantine flag is never applied and Gatekeeper never
-appears — even though the app is unsigned.
+## Routes that work
 
-Hand whoever administers it the `ImageCap.pkg` that `./release.sh` produces. Most MDM
-products take a `.pkg` under a "custom app" or "managed software" section.
+**MDM**, if the Macs are centrally managed — software installed by a management agent as
+root is never quarantined, so Gatekeeper never appears. Hand whoever administers it the
+`ImageCap.pkg` from `./release.sh`.
 
-The app appears in Applications. People open it. That is the whole experience.
+**A copy you make yourself**, from a USB stick or a file share. A copy of a build that was
+never quarantined has no flag to inherit, so it opens with no warning at all.
 
-If they would rather run a script than host a package, most MDM systems can execute a
-shell script on enrolled Macs — `install.sh` does the job unchanged.
-
-### DIY: shared folder plus a one-time unlock
-
-Put **`ImageCap.zip`** and `READ ME FIRST.txt` in a shared Google Drive folder — the
-zip, never the raw `.app`.
-
-A Mac application is a folder, not a file. Sync it to Drive unzipped and Drive stores it
-as a browsable folder: teammates see `Contents`, `MacOS`, `Info.plist` and open the
-plist, which is XML. Confirmed happening 2026-09-17. A zip is a single file, downloads
-as one, and expands back into a working bundle with permissions intact.
-Teammates drag the app to Applications, hit the Gatekeeper block once, and clear it
-through System Settings → Privacy & Security → "Open Anyway". The read-me walks them
-through it in plain language.
-
-**Tested 2026-09-16: Google Drive does apply the quarantine flag.** Synced folders were
-a plausible exception to that — apps copied from USB sticks and network shares are
-[documented as unflagged](https://derflounder.wordpress.com/2012/11/20/clearing-the-quarantine-extended-attribute-from-downloaded-applications/)
-— but Drive behaves like a download, so the block appears. Assume Dropbox does too
-unless someone tests it.
-
-What makes this acceptable anyway is that **the unlock is once per person, ever.** Future
-versions arrive through the in-app updater, which fetches them with URLSession and is
-therefore never flagged, so the block never reappears.
-
-Two things that will trip people up:
-
-- There is a **one-hour window**. "Open Anyway" only appears in System Settings for an
-  hour after the blocked message. Miss it and they have to double-click the app again to
-  re-trigger it.
-- The Gatekeeper dialog has **two variants**. Older-style: "cannot be opened because it
-  is from an unidentified developer", single OK button. Newer: "Apple could not verify…",
-  with Done and Move to Trash. Confirmed in the wild 2026-09-17 that a Chrome download
-  produces the first. The read-me covers both, because telling someone to click a button
-  that is not there is enough to stop them.
-- Finder sync folder versus browser download makes **no difference** — both quarantine,
-  so the unlock is needed either way. Do not bother instructing people on which to use.
-
-This only stays a one-time cost if `Updater.repo` is configured in the build you hand
-out — see the ordering note below.
-
-### If MDM is not an option: install it yourself, once per Mac
-
-Copy `ImageCap.app` from your machine to theirs and drag it into `/Applications`. A copy
-that travels by USB stick or a file share carries no quarantine flag, because your local
-build never had one, so it opens by double-click with no warning. After that the app
-updates itself and you never repeat this.
-
-### What not to do
-
-**Do not email, Slack, AirDrop, or link the app for download.** All of those apply the
-quarantine flag, which on macOS 15+ means each person has to visit System Settings →
-Privacy & Security → "Open Anyway", individually, on every update. AirDrop is included
-here — it tags what it receives with `sharingd` and is treated exactly like a browser
-download.
-
-### The Terminal route (still available, for you)
+**The install script**, for anyone comfortable in a terminal. It fetches the release with
+`curl`, so the result is unflagged:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jakes-hospitality-marketing/imagecap/main/install.sh | bash
 ```
 
-Fetches the latest release, installs to `/Applications`, opens it. Useful on your own
-machine and for anyone comfortable with it, but not something to ask a non-technical
-team to do.
+**A zip plus written instructions**, as a last resort — workable, but it costs each person
+a one-time trip through System Settings.
 
-## Updates after that
+**Don't** email, Slack, AirDrop or link the `.app` for download. All of those quarantine it.
 
-Run `./release.sh 1.1` on your machine. Nothing is required of your team: the app checks
-GitHub on launch, shows a banner when a newer version exists, and downloads and swaps
-itself when they click **Update & Relaunch**. Because the app fetches the update itself,
-no quarantine flag is applied and no prompt appears.
+## Updates to the Mac app
 
-This is why the self-updater is worth having even with MDM in the picture — you can ship
-a fix without filing a ticket with IT every time. Use MDM for the initial rollout, and
-the in-app updater for everything after.
+`./release.sh 1.1` builds, tags, packages and publishes. Installed copies see a banner and
+replace themselves. Because the app fetches the update itself, no quarantine flag is
+applied and no prompt appears — which is what kept the Gatekeeper unlock a one-time cost
+rather than a recurring one.
 
-`release.sh` still produces a fresh `.pkg` each time, so you can also hand IT a new one
-for anyone who joins later.
-
-## Order matters: never hand out a build that cannot update itself
-
-A build with `Updater.repo` empty **never checks for updates**. Distribute one of those
-and the copies are frozen — the only way onto a version that self-updates is to hand the
-app out a second time, and to make everyone repeat the Gatekeeper unlock.
-
-The repo is now set to `Jakes-hospitality-marketing/imagecap`, so any build made from here on is
-fine. The rule still applies to anything built before that.
-
-## Rollout checklist
-
-1. `./release.sh 1.0` — builds, tags, packages, publishes the release
-2. Copy the fresh `build/ImageCap.app` and `Install ImageCap - Read Me.txt` into the
-   shared Drive folder
-3. Team drags the app to Applications and does the one-time unlock
-4. From then on, `./release.sh 1.2` is the whole update process
+A build with no repository configured never checks for updates, so never hand one out.
 
 ## If you ever want to spend the $99
 
-An Apple Developer account lets you sign with a Developer ID and notarize, after which
-the app opens by double-click from any source, including email and Drive, with no
-Terminal and no banner caveats. That is the only thing the money buys here — the app
-itself would not change.
+An Apple Developer account allows signing with a Developer ID and notarizing, after which
+the app opens by double-click from any source with no warnings and no instructions. That
+is the only thing the money buys — the app itself would not change.
+
+With the web version in place, there is no longer much reason to.
