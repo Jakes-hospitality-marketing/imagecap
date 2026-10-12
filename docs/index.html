@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ImageCap</title>
+<meta name="description" content="Shrink images to fit a file size limit. Runs entirely in your browser.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --panel: #f6f6f7;
+    --line: #e2e2e5;
+    --text: #15161a;
+    --dim: #6b6d76;
+    --faint: #9a9ca4;
+    --accent: #2f6df6;
+    --accent-ink: #ffffff;
+    --good: #18794e;
+    --warn: #b4530a;
+    --bad: #c0362c;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16171a;
+      --panel: #1e2024;
+      --line: #2e3137;
+      --text: #ecedf0;
+      --dim: #a0a3ab;
+      --faint: #70737b;
+      --accent: #5b8dff;
+      --accent-ink: #0c1326;
+      --good: #4ac58a;
+      --warn: #e0954a;
+      --bad: #ef6f66;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16171a; --panel: #1e2024; --line: #2e3137; --text: #ecedf0;
+    --dim: #a0a3ab; --faint: #70737b; --accent: #5b8dff; --accent-ink: #0c1326;
+    --good: #4ac58a; --warn: #e0954a; --bad: #ef6f66;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+
+  header { margin-bottom: 22px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); font-size: 14px; margin: 0; }
+  .privacy {
+    display: inline-block; margin-top: 10px; font-size: 12.5px; color: var(--dim);
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 5px 10px; border-radius: 999px;
+  }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+  }
+
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .row + .row { margin-top: 14px; }
+  .label { font-size: 12.5px; font-weight: 600; color: var(--dim); }
+
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    appearance: none; border: 0; background: transparent; color: var(--text);
+    font: inherit; font-size: 13px; padding: 7px 13px; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+  input[type=number], input[type=text] {
+    font: inherit; font-size: 13px; padding: 6px 9px; width: 78px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: var(--bg); color: var(--text);
+  }
+  label.check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text); }
+
+  .btn {
+    appearance: none; font: inherit; font-size: 14px; font-weight: 550;
+    padding: 9px 18px; border-radius: 8px; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); border: 1px solid transparent;
+  }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+
+  #drop {
+    border: 2px dashed var(--line); border-radius: var(--radius);
+    padding: 52px 20px; text-align: center; cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  #drop h2 { font-size: 16px; margin: 0 0 6px; font-weight: 600; }
+  #drop p { margin: 0; color: var(--dim); font-size: 13px; }
+  #drop .formats { margin-top: 10px; font-size: 12px; color: var(--faint); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--faint); font-weight: 600; padding: 0 8px 8px; }
+  td { padding: 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .name { font-weight: 550; word-break: break-all; }
+  .note { color: var(--dim); font-size: 11.5px; margin-top: 2px; }
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+          border: 1px solid currentColor; }
+  .t-copied { color: var(--dim); }
+  .t-ok { color: var(--good); }
+  .t-resized { color: var(--warn); }
+  .t-failed { color: var(--bad); }
+  .saved { color: var(--good); }
+
+  .bar { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .15s; }
+
+  .summary { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 13.5px; }
+
+  /* On a phone the four columns cannot fit, so each result becomes a stacked
+     block: filename, then status and the before/after figures on one line. */
+  @media (max-width: 580px) {
+    .wrap { padding: 24px 16px 48px; }
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr { border-top: 1px solid var(--line); padding: 10px 0 12px; }
+    tr:first-child { border-top: 0; }
+    td { border: 0; padding: 0; }
+    td + td { margin-top: 5px; }
+    td.num { display: inline-block; width: auto; margin: 5px 12px 0 0; text-align: left; }
+    td.num .note { display: inline; margin-left: 5px; }
+    .seg { width: 100%; }
+    .seg button { flex: 1; }
+    #drop { padding: 40px 16px; }
+  }
+  footer { margin-top: 28px; color: var(--faint); font-size: 12px; text-align: center; }
+  a { color: var(--accent); }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>ImageCap</h1>
+    <p class="sub">Shrink a batch of images so every one lands under a size limit.</p>
+    <span class="privacy">Your images never leave this device — everything runs in your browser.</span>
+  </header>
+
+  <div class="panel">
+    <div class="row">
+      <span class="label">Size limit</span>
+      <div class="seg" id="presets"></div>
+      <span style="color:var(--dim);font-size:13px">or</span>
+      <input type="number" id="customMB" step="0.1" min="0.05" placeholder="MB" aria-label="Custom size limit in MB">
+      <span style="color:var(--dim);font-size:13px">MB</span>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="limitDim"> Also limit longest edge to</label>
+      <input type="number" id="dimPx" value="2400" min="64" step="100" disabled aria-label="Maximum pixel dimension">
+      <span style="color:var(--dim);font-size:13px">px</span>
+    </div>
+  </div>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Add images">
+    <h2>Drop images or a folder here</h2>
+    <p>or click to choose files</p>
+    <div class="formats">JPEG &middot; PNG &middot; WebP &middot; GIF &middot; AVIF &middot; HEIC (Safari only)</div>
+  </div>
+  <input type="file" id="picker" multiple accept="image/*,.heic,.heif" class="hide">
+
+  <div class="panel hide" id="queuePanel">
+    <div class="summary">
+      <strong id="queueCount"></strong>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="clearBtn">Clear</button>
+      <button class="btn" id="goBtn">Compress</button>
+    </div>
+    <div class="bar hide" id="progressWrap" style="margin-top:14px"><i id="progress"></i></div>
+    <div id="progressText" class="note hide" style="margin-top:8px"></div>
+  </div>
+
+  <div class="panel hide" id="resultsPanel">
+    <div class="summary" style="margin-bottom:14px">
+      <strong id="totals"></strong>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="againBtn">Start over</button>
+      <button class="btn" id="zipBtn">Download all</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>File</th><th style="width:1%">Result</th>
+        <th class="num" style="width:1%">Before</th><th class="num" style="width:1%">After</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <footer>Runs offline once loaded. Nothing is uploaded.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------------------
+   Settings
+   The presets sit just under the round numbers these limits are quoted as.
+   An upload cap of "2 MB" is a hard ceiling and platforms disagree about
+   whether a megabyte is 1,000,000 or 1,048,576 bytes, so landing exactly on
+   2 MB risks a rejected upload. The headroom costs nothing visible.
+--------------------------------------------------------------------------- */
+const PRESETS = [
+  ["1.9 MB", 1_900_000],
+  ["3.9 MB", 3_900_000],
+  ["900 KB", 900_000],
+  ["450 KB", 450_000],
+];
+
+const settings = {
+  maxBytes: 1_900_000,
+  maxDimension: null,
+  // Quality we refuse to go below before shrinking dimensions instead. Past
+  // roughly this point a smaller clean image reads better than a blurry
+  // full-size one. The cap is met either way.
+  minQuality: 0.40,
+};
+
+const SUPPORTED = /\.(jpe?g|png|gif|webp|avif|bmp|heic|heif|tiff?)$/i;
+
+/* ---------------------------------------------------------------------------
+   Format policy
+--------------------------------------------------------------------------- */
+function outputType(file) {
+  const ext = (file.name.match(/\.([^.]+)$/) || [, ""])[1].toLowerCase();
+  switch (ext) {
+    case "jpg": case "jpeg": return { mime: "image/jpeg", ext: ext, lossy: true,  converted: false };
+    case "png":              return { mime: "image/png",  ext: "png", lossy: false, converted: false };
+    case "webp":             return { mime: "image/webp", ext: "webp", lossy: true, converted: false };
+    // Browsers decode these but cannot write them, so they change format.
+    case "gif":              return { mime: "image/png",  ext: "png", lossy: false, converted: true };
+    case "avif": case "heic": case "heif": case "bmp": case "tif": case "tiff":
+                             return { mime: "image/jpeg", ext: "jpg", lossy: true, converted: true };
+    default:                 return { mime: "image/jpeg", ext: "jpg", lossy: true, converted: true };
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Canvas helpers
+--------------------------------------------------------------------------- */
+function makeCanvas(w, h) {
+  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  return c;
+}
+
+function drawTo(source, w, h, { flatten = false } = {}) {
+  const canvas = makeCanvas(w, h);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  // JPEG has no alpha channel, so transparency must become white rather than black.
+  if (flatten) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
+  ctx.drawImage(source, 0, 0, w, h);
+  return canvas;
+}
+
+function toBlob(canvas, mime, quality) {
+  if (canvas.convertToBlob) return canvas.convertToBlob({ type: mime, quality });
+  return new Promise(res => canvas.toBlob(res, mime, quality));
+}
+
+/* ---------------------------------------------------------------------------
+   The quality search
+
+   Encoders take a quality number, not a byte target. Size grows monotonically
+   with quality, so finding the highest quality that still fits is a binary
+   search — about eight encodes per image.
+--------------------------------------------------------------------------- */
+async function searchQuality(canvas, mime, maxBytes, floor = 0, iterations = 8) {
+  const top = await toBlob(canvas, mime, 1.0);
+  if (top && top.size <= maxBytes) return { blob: top, quality: 1.0 };
+
+  let lo = floor, hi = 1.0, best = null;
+
+  if (floor > 0) {
+    const atFloor = await toBlob(canvas, mime, floor);
+    if (!atFloor || atFloor.size > maxBytes) return null;  // caller will shrink instead
+    best = { blob: atFloor, quality: floor };
+  }
+
+  for (let i = 0; i < iterations; i++) {
+    const mid = (lo + hi) / 2;
+    const blob = await toBlob(canvas, mime, mid);
+    if (!blob) break;
+    if (blob.size <= maxBytes) { best = { blob, quality: mid }; lo = mid; }
+    else { hi = mid; }
+  }
+  return best;
+}
+
+/* Shrink dimensions until it fits, keeping quality as high as the cap allows.
+   Binary searches the scale so we keep the largest image that fits, rather
+   than the first one that happens to. */
+async function searchScale(source, mime, maxBytes, lossy, floor, flatten) {
+  const w0 = source.width, h0 = source.height;
+  let lo = 0.02, hi = 1.0, best = null;
+
+  for (let i = 0; i < 7; i++) {
+    const mid = (lo + hi) / 2;
+    const w = Math.max(1, Math.round(w0 * mid));
+    const h = Math.max(1, Math.round(h0 * mid));
+    const canvas = drawTo(source, w, h, { flatten });
+
+    let attempt = null;
+    if (lossy) {
+      const hit = await searchQuality(canvas, mime, maxBytes, floor);
+      if (hit) attempt = { blob: hit.blob, quality: hit.quality };
+    } else {
+      const blob = await toBlob(canvas, mime, 1.0);
+      if (blob && blob.size <= maxBytes) attempt = { blob, quality: null };
+    }
+
+    if (attempt) { best = { ...attempt, width: w, height: h }; lo = mid; }
+    else { hi = mid; }
+  }
+  return best;
+}
+
+/* ---------------------------------------------------------------------------
+   Flat artwork vs photographs
+
+   Decides which quality we sacrifice first for lossless formats. Artwork
+   reuses a small set of colours across many pixels and survives colour
+   reduction almost invisibly; photographs band badly on gradients, so for
+   those a smaller truecolour image beats a large posterised one.
+--------------------------------------------------------------------------- */
+function isFlatArtwork(canvas) {
+  const w = canvas.width, h = canvas.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const step = Math.max(1, Math.floor(Math.sqrt((w * h) / 20000)));
+  const seen = new Set();
+  let counted = 0;
+  for (let y = 0; y < h; y += step) {
+    const row = ctx.getImageData(0, y, w, 1).data;
+    for (let x = 0; x < w; x += step) {
+      const p = x * 4;
+      if (row[p + 3] > 8) { seen.add((row[p] << 16) | (row[p + 1] << 8) | row[p + 2]); counted++; }
+      if (seen.size > 6000) return false;   // clearly photographic, stop early
+    }
+  }
+  if (counted < 200) return true;
+  return seen.size * 8 < counted;
+}
+
+/* Reduce the number of distinct colours. Canvas always writes truecolour PNG,
+   so this is not a true palette image — but far fewer unique colours deflate
+   considerably better, which is where the saving comes from. */
+function posterize(canvas, levels) {
+  const w = canvas.width, h = canvas.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const stepSize = 255 / (levels - 1);
+  for (let i = 0; i < d.length; i += 4) {
+    d[i]     = Math.round(Math.round(d[i]     / stepSize) * stepSize);
+    d[i + 1] = Math.round(Math.round(d[i + 1] / stepSize) * stepSize);
+    d[i + 2] = Math.round(Math.round(d[i + 2] / stepSize) * stepSize);
+  }
+  const out = makeCanvas(w, h);
+  out.getContext("2d").putImageData(img, 0, 0);
+  return out;
+}
+
+async function searchPosterize(canvas, maxBytes) {
+  // Fewer levels is smaller; monotonic enough to walk from best to worst.
+  for (const levels of [32, 24, 16, 12, 8, 6, 4, 3, 2]) {
+    const reduced = posterize(canvas, levels);
+    const blob = await toBlob(reduced, "image/png", 1.0);
+    if (blob && blob.size <= maxBytes) return { blob, levels };
+  }
+  return null;
+}
+
+/* ---------------------------------------------------------------------------
+   Per-file pipeline
+--------------------------------------------------------------------------- */
+async function process(file) {
+  const target = settings.maxBytes;
+  const out = outputType(file);
+  const base = file.name.replace(/\.[^.]+$/, "");
+
+  let bitmap;
+  try {
+    // from-image applies EXIF rotation, so phone photos do not come out sideways.
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (e) {
+    const heic = /\.(heic|heif)$/i.test(file.name);
+    return {
+      name: file.name, before: file.size, after: 0, treatment: "failed",
+      note: heic ? "This browser can't read HEIC — open in Safari, or export as JPEG first"
+                 : "Could not read this file",
+    };
+  }
+
+  const ow = bitmap.width, oh = bitmap.height;
+  let w = ow, h = oh, didResize = false;
+
+  if (settings.maxDimension) {
+    const longest = Math.max(w, h);
+    if (longest > settings.maxDimension) {
+      const f = settings.maxDimension / longest;
+      w = Math.max(1, Math.round(w * f));
+      h = Math.max(1, Math.round(h * f));
+      didResize = true;
+    }
+  }
+
+  // Already small enough, nothing to change: pass the original through untouched
+  // rather than re-encoding it, which would only lose quality for no gain.
+  if (!out.converted && !didResize && file.size <= target) {
+    bitmap.close?.();
+    return {
+      name: `${base}.${out.ext}`, before: file.size, after: file.size,
+      treatment: "copied", blob: file, width: ow, height: oh, ow, oh,
+    };
+  }
+
+  let canvas = drawTo(bitmap, w, h, { flatten: out.lossy });
+  bitmap.close?.();
+
+  let blob = null, quality = null, levels = null;
+  let treatment = didResize ? "resized" : "ok";
+
+  if (out.lossy) {
+    const hit = await searchQuality(canvas, out.mime, target, settings.minQuality);
+    if (hit) { blob = hit.blob; quality = hit.quality; }
+  } else {
+    const plain = await toBlob(canvas, out.mime, 1.0);
+    if (plain && plain.size <= target) blob = plain;
+    else if (isFlatArtwork(canvas)) {
+      const hit = await searchPosterize(canvas, target);
+      if (hit) { blob = hit.blob; levels = hit.levels; }
+    }
+  }
+
+  // Nothing else worked — give up pixels.
+  if (!blob) {
+    const src = drawTo(canvas, w, h);
+    const hit = await searchScale(src, out.mime, target, out.lossy, settings.minQuality, out.lossy)
+             || await searchScale(src, out.mime, target, out.lossy, 0, out.lossy);
+    if (hit) { blob = hit.blob; quality = hit.quality; w = hit.width; h = hit.height; treatment = "resized"; }
+  }
+
+  if (!blob) {
+    return { name: file.name, before: file.size, after: 0, treatment: "failed",
+             note: `Could not reach ${fmt(target)} for this image` };
+  }
+
+  let note = null;
+  if (out.converted) note = `Saved as ${out.ext.toUpperCase()} — browsers can't write the original format`;
+  else if (levels) note = `Colours reduced to fit`;
+
+  return {
+    name: `${base}.${out.ext}`, before: file.size, after: blob.size,
+    treatment: out.converted ? "converted" : treatment,
+    blob, width: w, height: h, ow, oh, quality, note,
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   Input collection — files, folders, nested folders
+--------------------------------------------------------------------------- */
+async function walkEntry(entry, out) {
+  if (entry.isFile) {
+    const file = await new Promise(res => entry.file(res, () => res(null)));
+    if (file && SUPPORTED.test(file.name)) out.push(file);
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise(res => reader.readEntries(res, () => res([])));
+      if (!batch.length) break;
+      for (const e of batch) await walkEntry(e, out);
+    }
+  }
+}
+
+async function fromDrop(dt) {
+  const out = [];
+  const items = dt.items ? [...dt.items] : [];
+  const entries = items.map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (entries.length) { for (const e of entries) await walkEntry(e, out); }
+  else { for (const f of dt.files) if (SUPPORTED.test(f.name)) out.push(f); }
+  return out;
+}
+
+/* ---------------------------------------------------------------------------
+   UI
+--------------------------------------------------------------------------- */
+const $ = s => document.querySelector(s);
+const fmt = n => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + " MB"
+               : n >= 1000 ? Math.round(n / 1000) + " KB" : n + " B";
+
+let queue = [], results = [];
+
+const segs = $("#presets");
+PRESETS.forEach(([label, bytes]) => {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.setAttribute("aria-pressed", bytes === settings.maxBytes);
+  b.onclick = () => {
+    settings.maxBytes = bytes;
+    $("#customMB").value = "";
+    [...segs.children].forEach(c => c.setAttribute("aria-pressed", c === b));
+  };
+  segs.appendChild(b);
+});
+
+$("#customMB").addEventListener("input", e => {
+  const mb = parseFloat(e.target.value);
+  if (mb > 0) {
+    settings.maxBytes = Math.round(mb * 1_000_000);
+    [...segs.children].forEach(c => c.setAttribute("aria-pressed", "false"));
+  }
+});
+
+$("#limitDim").addEventListener("change", e => {
+  $("#dimPx").disabled = !e.target.checked;
+  syncDim();
+});
+$("#dimPx").addEventListener("input", syncDim);
+function syncDim() {
+  const on = $("#limitDim").checked;
+  const px = parseInt($("#dimPx").value, 10);
+  settings.maxDimension = on && px > 0 ? px : null;
+}
+
+const drop = $("#drop");
+drop.addEventListener("click", () => $("#picker").click());
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") $("#picker").click(); });
+["dragenter", "dragover"].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", async e => add(await fromDrop(e.dataTransfer)));
+$("#picker").addEventListener("change", e => add([...e.target.files].filter(f => SUPPORTED.test(f.name))));
+
+function add(files) {
+  if (!files.length) return;
+  const seen = new Set(queue.map(f => f.name + f.size));
+  for (const f of files) if (!seen.has(f.name + f.size)) queue.push(f);
+  renderQueue();
+}
+
+function renderQueue() {
+  const n = queue.length;
+  $("#queuePanel").classList.toggle("hide", n === 0);
+  $("#queueCount").textContent = `${n} image${n === 1 ? "" : "s"} ready`;
+  $("#goBtn").disabled = n === 0;
+}
+
+$("#clearBtn").onclick = () => { queue = []; renderQueue(); };
+$("#againBtn").onclick = () => {
+  queue = []; results = [];
+  renderQueue();
+  $("#resultsPanel").classList.add("hide");
+  $("#drop").classList.remove("hide");
+};
+
+$("#goBtn").onclick = async () => {
+  const total = queue.length;
+  results = [];
+  $("#goBtn").disabled = true;
+  $("#clearBtn").disabled = true;
+  $("#progressWrap").classList.remove("hide");
+  $("#progressText").classList.remove("hide");
+
+  for (let i = 0; i < total; i++) {
+    $("#progressText").textContent = `Compressing ${i + 1} of ${total} — ${queue[i].name}`;
+    $("#progress").style.width = `${(i / total) * 100}%`;
+    // Yield so the progress bar actually paints between images.
+    await new Promise(r => setTimeout(r, 0));
+    results.push(await process(queue[i]));
+  }
+
+  $("#progress").style.width = "100%";
+  $("#progressWrap").classList.add("hide");
+  $("#progressText").classList.add("hide");
+  $("#goBtn").disabled = false;
+  $("#clearBtn").disabled = false;
+  $("#queuePanel").classList.add("hide");
+  $("#drop").classList.add("hide");
+  renderResults();
+};
+
+const RANK = { failed: 0, converted: 1, resized: 2, ok: 3, copied: 4 };
+const LABEL = {
+  copied: "Already small enough", ok: "Compressed",
+  resized: "Compressed + resized", converted: "Converted", failed: "Failed",
+};
+
+function renderResults() {
+  results.sort((a, b) => RANK[a.treatment] - RANK[b.treatment]);
+  const tbody = $("#rows");
+  tbody.innerHTML = "";
+
+  for (const r of results) {
+    const tr = document.createElement("tr");
+
+    const td1 = document.createElement("td");
+    const nm = document.createElement("div");
+    nm.className = "name"; nm.textContent = r.name;
+    td1.appendChild(nm);
+    const bits = [];
+    if (r.ow && (r.width !== r.ow || r.height !== r.oh)) bits.push(`${r.ow}×${r.oh} → ${r.width}×${r.height}`);
+    if (r.note) bits.push(r.note);
+    if (bits.length) {
+      const n = document.createElement("div");
+      n.className = "note"; n.textContent = bits.join(" · ");
+      td1.appendChild(n);
+    }
+
+    const td2 = document.createElement("td");
+    const pill = document.createElement("span");
+    pill.className = "pill " + (r.treatment === "failed" ? "t-failed"
+      : r.treatment === "resized" ? "t-resized"
+      : r.treatment === "copied" ? "t-copied" : "t-ok");
+    pill.textContent = LABEL[r.treatment];
+    td2.appendChild(pill);
+
+    const td3 = document.createElement("td");
+    td3.className = "num"; td3.style.color = "var(--dim)";
+    td3.textContent = fmt(r.before);
+
+    const td4 = document.createElement("td");
+    td4.className = "num";
+    if (r.treatment === "failed") { td4.textContent = "—"; }
+    else {
+      td4.innerHTML = `<strong>${fmt(r.after)}</strong>`;
+      const pct = r.before > 0 ? 1 - r.after / r.before : 0;
+      if (pct > 0.005) {
+        const s = document.createElement("div");
+        s.className = "saved note"; s.style.color = "var(--good)";
+        s.textContent = `−${Math.round(pct * 100)}%`;
+        td4.appendChild(s);
+      }
+    }
+
+    tr.append(td1, td2, td3, td4);
+    tbody.appendChild(tr);
+  }
+
+  const ok = results.filter(r => r.blob);
+  const before = ok.reduce((s, r) => s + r.before, 0);
+  const after = ok.reduce((s, r) => s + r.after, 0);
+  const failed = results.filter(r => r.treatment === "failed").length;
+  const pct = before > 0 ? Math.round((1 - after / before) * 100) : 0;
+  $("#totals").innerHTML = `${fmt(before)} → ${fmt(after)}` +
+    (pct > 0 ? ` <span class="saved">saved ${pct}%</span>` : "") +
+    (failed ? ` <span style="color:var(--bad)">· ${failed} failed</span>` : "");
+  $("#zipBtn").disabled = ok.length === 0;
+  $("#resultsPanel").classList.remove("hide");
+}
+
+$("#zipBtn").onclick = async () => {
+  const btn = $("#zipBtn");
+  btn.disabled = true; btn.textContent = "Zipping…";
+  const zip = new JSZip();
+  const used = new Set();
+  for (const r of results) {
+    if (!r.blob) continue;
+    let name = r.name, n = 2;
+    while (used.has(name)) {
+      name = r.name.replace(/(\.[^.]+)$/, `-${n}$1`);
+      n++;
+    }
+    used.add(name);
+    zip.file(name, r.blob);
+  }
+  const blob = await zip.generateAsync({ type: "blob" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `Compressed ${fmt(settings.maxBytes).replace(/\s/g, " ")}.zip`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  btn.disabled = false; btn.textContent = "Download all";
+};
+</script>
+</body>
+</html>
