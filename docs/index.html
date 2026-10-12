@@ -86,6 +86,21 @@
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
 
+  /* A working button stays at full opacity and spins, so a long batch reads as
+     "busy" rather than "broken". Only honest because the encoding runs in
+     workers — on the main thread this animation would freeze with everything else. */
+  .btn.busy { opacity: 1; position: relative; padding-left: 36px; }
+  .btn.busy::before {
+    content: ""; position: absolute; left: 15px; top: 50%;
+    width: 13px; height: 13px; margin-top: -7px;
+    border: 2px solid currentColor; border-right-color: transparent;
+    border-radius: 50%; animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .btn.busy::before { animation-duration: 2.4s; }
+  }
+
   #drop {
     border: 2px dashed var(--line); border-radius: var(--radius);
     padding: 52px 20px; text-align: center; cursor: pointer;
@@ -227,6 +242,7 @@
 
 /* ---------------------------------------------------------------------------
    Settings
+
    The presets sit just under the round numbers these limits are quoted as.
    An upload cap of "2 MB" is a hard ceiling and platforms disagree about
    whether a megabyte is 1,000,000 or 1,048,576 bytes, so landing exactly on
@@ -249,334 +265,89 @@ const settings = {
 };
 
 const SUPPORTED = /\.(jpe?g|png|gif|webp|avif|bmp|heic|heif|tiff?)$/i;
+const isHeic = f => /\.(heic|heif)$/i.test(f.name);
 
 /* ---------------------------------------------------------------------------
-   Format policy
+   Worker pool
+
+   All the real work happens off the main thread. Canvas encoding is
+   synchronous and heavy: on the main thread it blocks painting, so the page
+   appears frozen and even a spinner stops turning. Running several workers
+   also processes several images at once.
+
+   Lanes are capped well below the core count on purpose. A 45-megapixel photo
+   is roughly 180 MB once decoded to RGBA, and the searches hold more than one
+   canvas at a time, so more lanes buys little and risks exhausting memory.
 --------------------------------------------------------------------------- */
-function outputType(file) {
-  const ext = (file.name.match(/\.([^.]+)$/) || [, ""])[1].toLowerCase();
-  switch (ext) {
-    case "jpg": case "jpeg": return { mime: "image/jpeg", ext: ext, lossy: true,  converted: false };
-    case "png":              return { mime: "image/png",  ext: "png", lossy: false, converted: false };
-    case "webp":             return { mime: "image/webp", ext: "webp", lossy: true, converted: false };
-    // Browsers decode these but cannot write them, so they change format.
-    case "gif":              return { mime: "image/png",  ext: "png", lossy: false, converted: true };
-    case "avif": case "heic": case "heif": case "bmp": case "tif": case "tiff":
-                             return { mime: "image/jpeg", ext: "jpg", lossy: true, converted: true };
-    default:                 return { mime: "image/jpeg", ext: "jpg", lossy: true, converted: true };
+const LANES = Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 4)));
+
+let pool = [];
+let nextJobId = 0;
+const pending = new Map();
+
+function spawnPool(n = LANES) {
+  if (pool.length) return;
+  for (let i = 0; i < n; i++) {
+    const w = new Worker("worker.js");
+    w.onmessage = e => {
+      const job = pending.get(e.data.id);
+      if (!job) return;
+      pending.delete(e.data.id);
+      job.resolve(e.data);
+      job.worker.busy = false;
+    };
+    w.busy = false;
+    pool.push(w);
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Canvas helpers
---------------------------------------------------------------------------- */
-function makeCanvas(w, h) {
-  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
-  const c = document.createElement("canvas");
-  c.width = w; c.height = h;
-  return c;
+function send(worker, payload) {
+  const id = ++nextJobId;
+  worker.busy = true;
+  return new Promise(resolve => {
+    pending.set(id, { resolve, worker });
+    worker.postMessage({ ...payload, id });
+  });
 }
 
-function drawTo(source, w, h, { flatten = false } = {}) {
-  const canvas = makeCanvas(w, h);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  // JPEG has no alpha channel, so transparency must become white rather than black.
-  if (flatten) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
-  ctx.drawImage(source, 0, 0, w, h);
-  return canvas;
-}
+/* Run jobs across the pool, keeping every lane fed. onDone fires per result
+   so progress reflects work actually finished, not work merely started. */
+async function runPool(items, makePayload, onDone) {
+  spawnPool();
+  const out = new Array(items.length);
+  let next = 0;
 
-function toBlob(canvas, mime, quality) {
-  if (canvas.convertToBlob) return canvas.convertToBlob({ type: mime, quality });
-  return new Promise(res => canvas.toBlob(res, mime, quality));
-}
-
-/* ---------------------------------------------------------------------------
-   The quality search
-
-   Encoders take a quality number, not a byte target. Size grows monotonically
-   with quality, so finding the highest quality that still fits is a binary
-   search — about eight encodes per image.
---------------------------------------------------------------------------- */
-async function searchQuality(canvas, mime, maxBytes, floor = 0, iterations = 8) {
-  const top = await toBlob(canvas, mime, 1.0);
-  if (top && top.size <= maxBytes) return { blob: top, quality: 1.0 };
-
-  let lo = floor, hi = 1.0, best = null;
-
-  if (floor > 0) {
-    const atFloor = await toBlob(canvas, mime, floor);
-    if (!atFloor || atFloor.size > maxBytes) return null;  // caller will shrink instead
-    best = { blob: atFloor, quality: floor };
-  }
-
-  for (let i = 0; i < iterations; i++) {
-    const mid = (lo + hi) / 2;
-    const blob = await toBlob(canvas, mime, mid);
-    if (!blob) break;
-    if (blob.size <= maxBytes) { best = { blob, quality: mid }; lo = mid; }
-    else { hi = mid; }
-  }
-  return best;
-}
-
-/* Shrink dimensions until it fits, keeping quality as high as the cap allows.
-   Binary searches the scale so we keep the largest image that fits, rather
-   than the first one that happens to. */
-async function searchScale(source, mime, maxBytes, lossy, floor, flatten) {
-  const w0 = source.width, h0 = source.height;
-  let lo = 0.02, hi = 1.0, best = null;
-
-  for (let i = 0; i < 7; i++) {
-    const mid = (lo + hi) / 2;
-    const w = Math.max(1, Math.round(w0 * mid));
-    const h = Math.max(1, Math.round(h0 * mid));
-    const canvas = drawTo(source, w, h, { flatten });
-
-    let attempt = null;
-    if (lossy) {
-      const hit = await searchQuality(canvas, mime, maxBytes, floor);
-      if (hit) attempt = { blob: hit.blob, quality: hit.quality };
-    } else {
-      const blob = await toBlob(canvas, mime, 1.0);
-      if (blob && blob.size <= maxBytes) attempt = { blob, quality: null };
+  await Promise.all(pool.map(async worker => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      const { result } = await send(worker, makePayload(items[i]));
+      out[i] = result;
+      onDone?.(result);
     }
+  }));
 
-    if (attempt) { best = { ...attempt, width: w, height: h }; lo = mid; }
-    else { hi = mid; }
-  }
-  return best;
-}
-
-/* ---------------------------------------------------------------------------
-   Flat artwork vs photographs
-
-   Decides which quality we sacrifice first for lossless formats. Artwork
-   reuses a small set of colours across many pixels and survives colour
-   reduction almost invisibly; photographs band badly on gradients, so for
-   those a smaller truecolour image beats a large posterised one.
---------------------------------------------------------------------------- */
-function isFlatArtwork(canvas) {
-  const w = canvas.width, h = canvas.height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const step = Math.max(1, Math.floor(Math.sqrt((w * h) / 20000)));
-  const seen = new Set();
-  let counted = 0;
-  for (let y = 0; y < h; y += step) {
-    const row = ctx.getImageData(0, y, w, 1).data;
-    for (let x = 0; x < w; x += step) {
-      const p = x * 4;
-      if (row[p + 3] > 8) { seen.add((row[p] << 16) | (row[p + 1] << 8) | row[p + 2]); counted++; }
-      if (seen.size > 6000) return false;   // clearly photographic, stop early
-    }
-  }
-  if (counted < 200) return true;
-  return seen.size * 8 < counted;
-}
-
-/* Reduce the number of distinct colours. Canvas always writes truecolour PNG,
-   so this is not a true palette image — but far fewer unique colours deflate
-   considerably better, which is where the saving comes from. */
-function posterize(canvas, levels) {
-  const w = canvas.width, h = canvas.height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const stepSize = 255 / (levels - 1);
-  for (let i = 0; i < d.length; i += 4) {
-    d[i]     = Math.round(Math.round(d[i]     / stepSize) * stepSize);
-    d[i + 1] = Math.round(Math.round(d[i + 1] / stepSize) * stepSize);
-    d[i + 2] = Math.round(Math.round(d[i + 2] / stepSize) * stepSize);
-  }
-  const out = makeCanvas(w, h);
-  out.getContext("2d").putImageData(img, 0, 0);
   return out;
-}
-
-async function searchPosterize(canvas, maxBytes) {
-  // Fewer levels is smaller; monotonic enough to walk from best to worst.
-  for (const levels of [32, 24, 16, 12, 8, 6, 4, 3, 2]) {
-    const reduced = posterize(canvas, levels);
-    const blob = await toBlob(reduced, "image/png", 1.0);
-    if (blob && blob.size <= maxBytes) return { blob, levels };
-  }
-  return null;
 }
 
 /* ---------------------------------------------------------------------------
    HEIC
 
    Safari decodes HEIC natively; Chrome and Firefox cannot, and iPhones shoot
-   HEIC by default. Rather than failing, we detect it quietly and offer two
-   ways out: move to Safari, or pull in a WebAssembly decoder.
+   HEIC by default. Rather than failing, detect it quietly and offer two ways
+   out: move to Safari, or pull in a WebAssembly decoder.
 
-   The decoder is 1.3 MB, so it loads only once a HEIC file that this browser
-   genuinely cannot read actually turns up. Everyone else never fetches it.
+   The decoder is 1.3 MB and loads inside the workers only once a HEIC this
+   browser genuinely cannot read turns up. Everyone else never fetches it.
 --------------------------------------------------------------------------- */
-const isHeic = f => /\.(heic|heif)$/i.test(f.name);
-
-let heicNative = null;    // null = untested, true = browser handles it
-let heicDecoder = null;   // the lazily-loaded decoder, once fetched
+let heicNative = null;     // null = untested
+let heicConvert = false;   // user opted into the decoder
 
 async function testHeicNative(file) {
-  try {
-    const bmp = await createImageBitmap(file);
-    bmp.close?.();
-    return true;
-  } catch { return false; }
-}
-
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("load failed"));
-    document.head.appendChild(s);
-  });
-}
-
-async function loadHeicDecoder() {
-  if (heicDecoder) return heicDecoder;
-  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js");
-  if (typeof heic2any !== "function") throw new Error("decoder unavailable");
-  heicDecoder = heic2any;
-  return heicDecoder;
-}
-
-/* Decode HEIC to a JPEG blob the rest of the pipeline can handle. Quality is
-   high here deliberately — this is an intermediate step, and the real size
-   decision happens later in the quality search. */
-async function heicToJpeg(file) {
-  const out = await heicDecoder({ blob: file, toType: "image/jpeg", quality: 0.95 });
-  const blob = Array.isArray(out) ? out[0] : out;
-  return new File([blob], file.name, { type: "image/jpeg" });
-}
-
-/* ---------------------------------------------------------------------------
-   Per-file pipeline
---------------------------------------------------------------------------- */
-async function process(file) {
-  const target = settings.maxBytes;
-  const out = outputType(file);
-  const base = file.name.replace(/\.[^.]+$/, "");
-  const originalSize = file.size;
-
-  // A HEIC this browser cannot read natively goes through the decoder first,
-  // if the user chose to load it.
-  let viaDecoder = false;
-  if (isHeic(file) && heicNative === false && heicDecoder) {
-    try { file = await heicToJpeg(file); viaDecoder = true; }
-    catch {
-      return { name: file.name, before: originalSize, after: 0, treatment: "failed",
-               note: "Could not convert this HEIC photo" };
-    }
-  }
-
-  let bitmap;
-  try {
-    // from-image applies EXIF rotation, so phone photos do not come out sideways.
-    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  } catch (e) {
-    return {
-      name: file.name, before: originalSize, after: 0, treatment: "failed",
-      note: isHeic(file) ? "This browser can't read HEIC — use Safari, or convert above"
-                         : "Could not read this file",
-    };
-  }
-
-  const ow = bitmap.width, oh = bitmap.height;
-  let w = ow, h = oh, didResize = false;
-
-  if (settings.maxDimension) {
-    const longest = Math.max(w, h);
-    if (longest > settings.maxDimension) {
-      const f = settings.maxDimension / longest;
-      w = Math.max(1, Math.round(w * f));
-      h = Math.max(1, Math.round(h * f));
-      didResize = true;
-    }
-  }
-
-  // Already small enough, nothing to change: pass the original through untouched
-  // rather than re-encoding it, which would only lose quality for no gain.
-  if (!out.converted && !didResize && originalSize <= target) {
-    bitmap.close?.();
-    return {
-      name: `${base}.${out.ext}`, before: originalSize, after: originalSize,
-      treatment: "copied", blob: file, width: ow, height: oh, ow, oh,
-    };
-  }
-
-  let canvas = drawTo(bitmap, w, h, { flatten: out.lossy });
-  bitmap.close?.();
-
-  let blob = null, quality = null, levels = null;
-  let treatment = didResize ? "resized" : "ok";
-
-  if (out.lossy) {
-    const hit = await searchQuality(canvas, out.mime, target, settings.minQuality);
-    if (hit) { blob = hit.blob; quality = hit.quality; }
-  } else {
-    const plain = await toBlob(canvas, out.mime, 1.0);
-    if (plain && plain.size <= target) blob = plain;
-    else if (isFlatArtwork(canvas)) {
-      const hit = await searchPosterize(canvas, target);
-      if (hit) { blob = hit.blob; levels = hit.levels; }
-    }
-  }
-
-  // Nothing else worked — give up pixels.
-  if (!blob) {
-    const src = drawTo(canvas, w, h);
-    const hit = await searchScale(src, out.mime, target, out.lossy, settings.minQuality, out.lossy)
-             || await searchScale(src, out.mime, target, out.lossy, 0, out.lossy);
-    if (hit) { blob = hit.blob; quality = hit.quality; w = hit.width; h = hit.height; treatment = "resized"; }
-  }
-
-  if (!blob) {
-    return { name: file.name, before: originalSize, after: 0, treatment: "failed",
-             note: `Could not reach ${fmt(target)} for this image` };
-  }
-
-  let note = null;
-  if (viaDecoder) note = `HEIC converted to JPEG in your browser`;
-  else if (out.converted) note = `Saved as ${out.ext.toUpperCase()} — browsers can't write the original format`;
-  else if (levels) note = `Colours reduced to fit`;
-
-  return {
-    name: `${base}.${out.ext}`, before: originalSize, after: blob.size,
-    treatment: out.converted ? "converted" : treatment,
-    blob, width: w, height: h, ow, oh, quality, note,
-  };
-}
-
-/* ---------------------------------------------------------------------------
-   Input collection — files, folders, nested folders
---------------------------------------------------------------------------- */
-async function walkEntry(entry, out) {
-  if (entry.isFile) {
-    const file = await new Promise(res => entry.file(res, () => res(null)));
-    if (file && SUPPORTED.test(file.name)) out.push(file);
-  } else if (entry.isDirectory) {
-    const reader = entry.createReader();
-    for (;;) {
-      const batch = await new Promise(res => reader.readEntries(res, () => res([])));
-      if (!batch.length) break;
-      for (const e of batch) await walkEntry(e, out);
-    }
-  }
-}
-
-async function fromDrop(dt) {
-  const out = [];
-  const items = dt.items ? [...dt.items] : [];
-  const entries = items.map(i => i.webkitGetAsEntry?.()).filter(Boolean);
-  if (entries.length) { for (const e of entries) await walkEntry(e, out); }
-  else { for (const f of dt.files) if (SUPPORTED.test(f.name)) out.push(f); }
-  return out;
+  spawnPool();
+  const worker = pool[0];
+  const { native } = await send(worker, { kind: "heic-test", file });
+  return native;
 }
 
 /* ---------------------------------------------------------------------------
@@ -609,15 +380,11 @@ $("#customMB").addEventListener("input", e => {
   }
 });
 
-$("#limitDim").addEventListener("change", e => {
-  $("#dimPx").disabled = !e.target.checked;
-  syncDim();
-});
+$("#limitDim").addEventListener("change", e => { $("#dimPx").disabled = !e.target.checked; syncDim(); });
 $("#dimPx").addEventListener("input", syncDim);
 function syncDim() {
-  const on = $("#limitDim").checked;
   const px = parseInt($("#dimPx").value, 10);
-  settings.maxDimension = on && px > 0 ? px : null;
+  settings.maxDimension = $("#limitDim").checked && px > 0 ? px : null;
 }
 
 const drop = $("#drop");
@@ -630,6 +397,28 @@ drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") 
 drop.addEventListener("drop", async e => add(await fromDrop(e.dataTransfer)));
 $("#picker").addEventListener("change", e => add([...e.target.files].filter(f => SUPPORTED.test(f.name))));
 
+async function walkEntry(entry, out) {
+  if (entry.isFile) {
+    const file = await new Promise(res => entry.file(res, () => res(null)));
+    if (file && SUPPORTED.test(file.name)) out.push(file);
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise(res => reader.readEntries(res, () => res([])));
+      if (!batch.length) break;
+      for (const e of batch) await walkEntry(e, out);
+    }
+  }
+}
+
+async function fromDrop(dt) {
+  const out = [];
+  const entries = (dt.items ? [...dt.items] : []).map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (entries.length) { for (const e of entries) await walkEntry(e, out); }
+  else { for (const f of dt.files) if (SUPPORTED.test(f.name)) out.push(f); }
+  return out;
+}
+
 function add(files) {
   if (!files.length) return;
   const seen = new Set(queue.map(f => f.name + f.size));
@@ -638,18 +427,21 @@ function add(files) {
   checkHeic();
 }
 
-/* Quietly work out whether the HEIC files in the queue are a problem for this
-   browser, and only say something if they are. Safari users never see this. */
+function renderQueue() {
+  const n = queue.length;
+  $("#queuePanel").classList.toggle("hide", n === 0);
+  $("#queueCount").textContent = `${n} image${n === 1 ? "" : "s"} ready`;
+  $("#goBtn").disabled = n === 0;
+}
+
+/* Say nothing unless HEIC is actually a problem here. Safari never sees this. */
 async function checkHeic() {
   const heics = queue.filter(isHeic);
   const notice = $("#heicNotice");
-
   if (!heics.length) { notice.classList.add("hide"); return; }
 
   if (heicNative === null) heicNative = await testHeicNative(heics[0]);
-
-  // Handled natively, or the user already loaded the decoder: nothing to say.
-  if (heicNative || heicDecoder) { notice.classList.add("hide"); return; }
+  if (heicNative || heicConvert) { notice.classList.add("hide"); return; }
 
   const n = heics.length;
   $("#heicTitle").textContent =
@@ -657,42 +449,23 @@ async function checkHeic() {
   $("#heicBody").textContent =
     "HEIC is Apple's iPhone photo format, and only Safari opens it directly. " +
     "You can convert them here instead, which downloads a one-off 1.3 MB converter " +
-    "and saves them as JPEG. Everything still stays on your device.";
+    "and saves them as JPEG. Everything still stays on your device. Converting is " +
+    "noticeably slower than Safari, so use Safari if it's handy.";
   notice.classList.remove("hide");
 }
 
-$("#heicConvert").onclick = async () => {
-  const btn = $("#heicConvert");
-  btn.disabled = true;
-  btn.textContent = "Loading converter…";
-  try {
-    await loadHeicDecoder();
-    $("#heicNotice").classList.add("hide");
-    btn.disabled = false;
-    btn.textContent = "Convert them here";
-  } catch {
-    btn.disabled = false;
-    btn.textContent = "Convert them here";
-    $("#heicBody").textContent =
-      "The converter couldn't be downloaded — you may be offline. Opening this page " +
-      "in Safari works without it.";
-  }
+$("#heicConvert").onclick = () => {
+  heicConvert = true;
+  $("#heicNotice").classList.add("hide");
 };
 
 $("#heicSafari").onclick = () => {
-  // macOS and iOS understand this scheme and hand the URL to Safari. Nothing
-  // happens if the browser blocks it, so the copyable URL is shown as a backup.
+  // macOS and iOS understand this scheme and hand the URL to Safari. If the
+  // browser blocks it nothing happens, so show the URL as a fallback.
   $("#heicUrl").textContent = location.href;
   $("#heicCopy").classList.remove("hide");
   try { location.href = "x-safari-" + location.href; } catch {}
 };
-
-function renderQueue() {
-  const n = queue.length;
-  $("#queuePanel").classList.toggle("hide", n === 0);
-  $("#queueCount").textContent = `${n} image${n === 1 ? "" : "s"} ready`;
-  $("#goBtn").disabled = n === 0;
-}
 
 $("#clearBtn").onclick = () => { queue = []; renderQueue(); checkHeic(); };
 $("#againBtn").onclick = () => {
@@ -705,28 +478,44 @@ $("#againBtn").onclick = () => {
 
 $("#goBtn").onclick = async () => {
   const total = queue.length;
+  const btn = $("#goBtn");
   results = [];
-  $("#goBtn").disabled = true;
+  let done = 0;
+
+  btn.disabled = true;
+  btn.classList.add("busy");
   $("#clearBtn").disabled = true;
   $("#progressWrap").classList.remove("hide");
   $("#progressText").classList.remove("hide");
 
-  for (let i = 0; i < total; i++) {
-    $("#progressText").textContent = `Compressing ${i + 1} of ${total} — ${queue[i].name}`;
-    $("#progress").style.width = `${(i / total) * 100}%`;
-    // Yield so the progress bar actually paints between images.
-    await new Promise(r => setTimeout(r, 0));
-    results.push(await process(queue[i]));
-  }
+  const tick = () => {
+    done++;
+    btn.textContent = `Compressing ${done} of ${total}…`;
+    $("#progress").style.width = `${(done / total) * 100}%`;
+    $("#progressText").textContent =
+      `${done} of ${total} done${LANES > 1 ? ` — ${Math.min(LANES, total - done)} running at once` : ""}`;
+  };
 
-  $("#progress").style.width = "100%";
+  btn.textContent = `Compressing 0 of ${total}…`;
+  $("#progressText").textContent = `Starting ${Math.min(LANES, total)} at once…`;
+
+  const t0 = performance.now();
+  results = await runPool(
+    queue,
+    file => ({ kind: "process", file, settings, useDecoder: isHeic(file) && !heicNative && heicConvert }),
+    tick
+  );
+  const secs = (performance.now() - t0) / 1000;
+
+  btn.classList.remove("busy");
+  btn.textContent = "Compress";
+  btn.disabled = false;
+  $("#clearBtn").disabled = false;
   $("#progressWrap").classList.add("hide");
   $("#progressText").classList.add("hide");
-  $("#goBtn").disabled = false;
-  $("#clearBtn").disabled = false;
   $("#queuePanel").classList.add("hide");
   $("#drop").classList.add("hide");
-  renderResults();
+  renderResults(secs);
 };
 
 const RANK = { failed: 0, converted: 1, resized: 2, ok: 3, copied: 4 };
@@ -735,7 +524,7 @@ const LABEL = {
   resized: "Compressed + resized", converted: "Converted", failed: "Failed",
 };
 
-function renderResults() {
+function renderResults(secs) {
   results.sort((a, b) => RANK[a.treatment] - RANK[b.treatment]);
   const tbody = $("#rows");
   tbody.innerHTML = "";
@@ -748,7 +537,7 @@ function renderResults() {
     nm.className = "name"; nm.textContent = r.name;
     td1.appendChild(nm);
     const bits = [];
-    if (r.ow && (r.width !== r.ow || r.height !== r.oh)) bits.push(`${r.ow}×${r.oh} → ${r.width}×${r.height}`);
+    if (r.ow && r.meaningfullyResized) bits.push(`${r.ow}×${r.oh} → ${r.width}×${r.height}`);
     if (r.note) bits.push(r.note);
     if (bits.length) {
       const n = document.createElement("div");
@@ -770,13 +559,13 @@ function renderResults() {
 
     const td4 = document.createElement("td");
     td4.className = "num";
-    if (r.treatment === "failed") { td4.textContent = "—"; }
+    if (r.treatment === "failed") td4.textContent = "—";
     else {
       td4.innerHTML = `<strong>${fmt(r.after)}</strong>`;
       const pct = r.before > 0 ? 1 - r.after / r.before : 0;
       if (pct > 0.005) {
         const s = document.createElement("div");
-        s.className = "saved note"; s.style.color = "var(--good)";
+        s.className = "note"; s.style.color = "var(--good)";
         s.textContent = `−${Math.round(pct * 100)}%`;
         td4.appendChild(s);
       }
@@ -791,35 +580,38 @@ function renderResults() {
   const after = ok.reduce((s, r) => s + r.after, 0);
   const failed = results.filter(r => r.treatment === "failed").length;
   const pct = before > 0 ? Math.round((1 - after / before) * 100) : 0;
+
   $("#totals").innerHTML = `${fmt(before)} → ${fmt(after)}` +
     (pct > 0 ? ` <span class="saved">saved ${pct}%</span>` : "") +
-    (failed ? ` <span style="color:var(--bad)">· ${failed} failed</span>` : "");
+    (failed ? ` <span style="color:var(--bad)">· ${failed} failed</span>` : "") +
+    (secs ? ` <span style="color:var(--faint);font-weight:400">· ${secs.toFixed(1)}s</span>` : "");
   $("#zipBtn").disabled = ok.length === 0;
   $("#resultsPanel").classList.remove("hide");
 }
 
 $("#zipBtn").onclick = async () => {
   const btn = $("#zipBtn");
-  btn.disabled = true; btn.textContent = "Zipping…";
+  btn.disabled = true;
+  btn.classList.add("busy");
+  btn.textContent = "Zipping…";
   const zip = new JSZip();
   const used = new Set();
   for (const r of results) {
     if (!r.blob) continue;
     let name = r.name, n = 2;
-    while (used.has(name)) {
-      name = r.name.replace(/(\.[^.]+)$/, `-${n}$1`);
-      n++;
-    }
+    while (used.has(name)) { name = r.name.replace(/(\.[^.]+)$/, `-${n}$1`); n++; }
     used.add(name);
     zip.file(name, r.blob);
   }
   const blob = await zip.generateAsync({ type: "blob" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `Compressed ${fmt(settings.maxBytes).replace(/\s/g, " ")}.zip`;
+  a.download = `Compressed ${fmt(settings.maxBytes)}.zip`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-  btn.disabled = false; btn.textContent = "Download all";
+  btn.classList.remove("busy");
+  btn.disabled = false;
+  btn.textContent = "Download all";
 };
 </script>
 </body>
